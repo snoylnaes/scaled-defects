@@ -48,7 +48,7 @@ first error: Model 'A2X.A2XEquities.UdpHeader.Amd.v1': fixed-layout accessor fie
 
 ## cs0031-sbyte-overflow
 
-generates clean, fails build: CS0031 sbyte-constant overflow in the Types emitter (9 models)
+generates clean, fails build: CS0031 sbyte-constant overflow in the Types emitter (10 models)
 
 first error: Types/HhiIndicator.cs(17,15): error CS0031: Constant value '128' cannot be converted to a 'sbyte'.
 Bse.BseIndia.Eobi.Fbe.v1.4, the 14 non-v11+ Eurex.T7.Eobi.Fbe versions, the 7
@@ -62,6 +62,10 @@ backing type it is emitted as, in Types/HhiIndicator.cs and
 Types/PrevPriceHhiIndicator.cs. Reconfirmed 2026-09-14 by
 `sj verify-zerocopy-all` (output/verify-zerocopy-binary-qpbuq396/results.json):
 status build-failure, generation ok, build failed, for all 9.
+Bse.BseIndia.Eti.Fbe.v1.6.14 joined 2026-09-15 (run
+output/verify-zerocopy-binary-41u4ufo2): same Types-emitter sbyte-overflow
+defect, a different enum (Types/IncrementDecrementStatus.cs, member
+NoValue = 0x80).
 
 ## cs0102-duplicate-size
 

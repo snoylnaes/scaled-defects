@@ -1,2 +1,2 @@
-# run=none csharpgenerators=none scaledcompilers=none omispecifications=none
+# run=/Users/sean/code/scaled/ScaledCompilers/output/compile-binary-all-hpq6pdpi csharpgenerators=d4952da64f1ee8d729350eda513e55a40a7d2ebb scaledcompilers=76ff1d9221b4fed00eaea5e2cf90c511079e56e3 omispecifications=76c0531bcd31eb892e61730060ea024e3a27f319
 model	error	prev_error	defect	prev_defect	run
