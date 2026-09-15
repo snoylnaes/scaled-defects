@@ -33,7 +33,7 @@ Inside a cell, a backslash, tab, carriage return, and newline are written as `\\
 
     model  error  prev_error  defect  prev_defect  run
 
-- `stage` is `passed`, `generation`, or `build`.
+- `stage` is `passed`, `generation`, `build`, or `packets`. A `packets` row is a model that built but failed a pcap fixture.
 - `error` is the first error of that stage, with the run directory removed from
   every path and the `(line,col)` position removed from C# diagnostics. Everything
   else is verbatim. It is empty when the stage is `passed`.
