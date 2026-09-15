@@ -33,9 +33,7 @@ Inside a cell, a backslash, tab, carriage return, and newline are written as `\\
 
     model  error  prev_error  defect  prev_defect  run
 
-- `stage` is `passed`, `generation`, or `build`. A row reconciled from a run that
-  skipped a model's build carries the stage `skipped`: the model was never built,
-  so the table holds no evidence about it and the next gate reports it.
+- `stage` is `passed`, `generation`, or `build`.
 - `error` is the first error of that stage, with the run directory removed from
   every path and the `(line,col)` position removed from C# diagnostics. Everything
   else is verbatim. It is empty when the stage is `passed`.
