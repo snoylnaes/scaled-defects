@@ -10,8 +10,8 @@ own: with `DEFECTS_PATH` unset they keep the older `Models/*-denylist.txt` path.
 
 | File | Written by | Holds |
 | --- | --- | --- |
-| `zerocopy.tsv` | `sj reconcile <results.json>` | one row per model of a full-corpus ZeroCopy verify run |
-| `classes.tsv` | `sj reconcile <results.json>` | one row per model of a full-corpus Classes verify run |
+| `zerocopy.tsv` | `sj reconcile <run directory>` | one row per model of a full-corpus ZeroCopy verify run |
+| `classes.tsv` | `sj reconcile <run directory>` | one row per model of a full-corpus Classes verify run |
 | `compile.tsv` | `sj compile-binary-all` | one row per model the publisher skipped |
 | `defects.md` | by hand | one block per defect key |
 
@@ -38,7 +38,8 @@ Inside a cell, a backslash, tab, carriage return, and newline are written as `\\
   every path and the `(line,col)` position removed from C# diagnostics. Everything
   else is verbatim. It is empty when the stage is `passed`.
 - `model_hash` is the sha256 of the `.model.json`. It is recorded, not compared.
-- `defect` is a short key into `defects.md`.
+- `defect` is a short key into `defects.md`. A failing row with no key yet holds
+  `TODO`; a passed row holds an empty cell.
 - `run` is the run directory that produced the row.
 - A model absent from the run has no row. Git history holds the old row.
 
@@ -47,16 +48,17 @@ Inside a cell, a backslash, tab, carriage return, and newline are written as `\\
 - Copy-forward: when `stage` and `error` equal the previous row, `defect` is copied
   and the `prev_` columns are carried forward unchanged. Otherwise the previous
   `stage`, `error`, and `defect` move into `prev_stage`, `prev_error`, and
-  `prev_defect`, and `defect` is left blank for a human to fill.
+  `prev_defect`, and `defect` becomes `TODO` for a human to fill.
 - `verify-*-all` reads its table for expectations and never writes it. A failing
   model whose row has the same stage and error is expected. A different stage or
   error, or a failing model with no row, is a regression and the exit code is
   nonzero. A model that now passes while its row says it failed is reported, not
   failed. The Small and Medium tiers read the same table and ignore rows for models
   outside their folder. With no table file present, every failure is a regression.
-- `reconcile <results.json>` merges one full-corpus verify run into its table. It
-  refuses any other report.
+- `reconcile <run directory>` merges one full-corpus verify run into its table. It
+  refuses any other run.
 - `compile-binary-all` writes `compile.tsv` after it replaces the live tree.
 - No recipe commits, pulls, or pushes this repository.
 
-Fill only the blank `defect` cells after a reconcile, then commit.
+After a reconcile, `grep -n $'\tTODO\t' *.tsv` lists every cell to fill. Fill
+only those cells, then commit.
