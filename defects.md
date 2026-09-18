@@ -264,6 +264,12 @@ Options.Sola.Multicast.Hsvf.v1.5/v1.8/v1.9 and Tmx.Mx.Sola.Multicast.Hsvf.
 v1.11/v1.13/v1.14 all build with 0 errors. Dropped from the ledger; all 6
 now pass end to end.
 
+## memx-memo-missing-message-session
+
+model defect (not blocking): Memx.MemxEquities.Memo.Sbe session-frame targets carry no `Message=Session` characteristic
+
+The compiled model gives the Memx `MemoirDepthFeed`/`MemoirLastSale`/`MemoirTopOfBook` and Nasdaq `SoupBin` session-frame targets (Heartbeat, Login, Logout, and similar) an action with `characteristics: [{"Message": "Session"}]` (5 in each Memoir model, 15 in SoupBin). The equivalent `Memx.MemxEquities.Memo.Sbe.*` session-frame targets (for example `clientpacket.clientdata.loginrequestmessage`, address `Login Request Message`) carry no `actions` at all, so the characteristic is absent. This is an inconsistency between sibling protocol specifications, not a fact any generator is entitled to require: the ZeroCopy session-packet dispatch (`ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/PacketDispatch.cs`) selects session-frame targets from the packet dispatch's off-path Branch cases alone and does not read `Message=Session` at all, so every `Memx.MemxEquities.Memo.Sbe.*` model still generates and passes. Fix site (propose only, not applied): `OmiSpecifications` — the Memx `Memo.Sbe` declarations' session message elements (Login Request/Accepted/Rejected, Logout, Heartbeat) would need the same `<Insert>`/characteristic declaration the Memoir and SoupBin declarations carry, once an owner confirms the omission is a transcription gap rather than an intentional difference between the two Memx protocols.
+
 # Classes
 
 ## §15
