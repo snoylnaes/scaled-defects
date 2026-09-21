@@ -264,11 +264,29 @@ Options.Sola.Multicast.Hsvf.v1.5/v1.8/v1.9 and Tmx.Mx.Sola.Multicast.Hsvf.
 v1.11/v1.13/v1.14 all build with 0 errors. Dropped from the ledger; all 6
 now pass end to end.
 
-## memx-memo-missing-message-session
+## enum-nonnumeric-ascii-value
 
-model defect (not blocking): Memx.MemxEquities.Memo.Sbe session-frame targets carry no `Message=Session` characteristic
+generator defect: integer-enum member with single-character ASCII data emits as a bare unquoted C# identifier
 
-The compiled model gives the Memx `MemoirDepthFeed`/`MemoirLastSale`/`MemoirTopOfBook` and Nasdaq `SoupBin` session-frame targets (Heartbeat, Login, Logout, and similar) an action with `characteristics: [{"Message": "Session"}]` (5 in each Memoir model, 15 in SoupBin). The equivalent `Memx.MemxEquities.Memo.Sbe.*` session-frame targets (for example `clientpacket.clientdata.loginrequestmessage`, address `Login Request Message`) carry no `actions` at all, so the characteristic is absent. This is an inconsistency between sibling protocol specifications, not a fact any generator is entitled to require: the ZeroCopy session-packet dispatch (`ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/PacketDispatch.cs`) selects session-frame targets from the packet dispatch's off-path Branch cases alone and does not read `Message=Session` at all, so every `Memx.MemxEquities.Memo.Sbe.*` model still generates and passes. Fix site (propose only, not applied): `OmiSpecifications` — the Memx `Memo.Sbe` declarations' session message elements (Login Request/Accepted/Rejected, Logout, Heartbeat) would need the same `<Insert>`/characteristic declaration the Memoir and SoupBin declarations carry, once an owner confirms the omission is a transcription gap rather than an intentional difference between the two Memx protocols.
+first error: Types/NoUnspecifiedUnitReplay.cs(22,15): error CS0103: The name 'T' does not exist in the current context. ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Enum/RawValue.cs:9 (`RawValue.For`) returns `value.Data` verbatim for every enum member, with no validation. The source PDF (e.g. Cboe/Usa/BzxOptions/BinaryOrderEntry/Cboe.BzxOptions.BinaryOrderEntry.Boe.v2.10.Pdf.xml, NoUnspecifiedUnitReplay enum) genuinely documents this 1-byte field as mostly-numeric (False=0, True=1) with one or more ASCII-letter sentinel values (Test=T, and for the v2.3.7/CboeEquities variant also UserRequested=U, EndOfDay=E, Administrative=A) — the model correctly carries these as Enum values with data 'T'/'U'/'E'/'A' on an Integer-translated field, this is not a spec transcription error. `Scaled.CSharp.ZeroCopy.CSharp.Value.Literal.Integer` (ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Value/Literal.cs:56-119) already handles exactly this shape for non-enum Constant values: it Ascii-quotes a single-character non-numeric literal via `Is.Ascii.Character` before falling back to `Parse`, which throws a clean "integer data is not decimal or 0x hexadecimal" error otherwise. `RawValue.For` has no equivalent path for enum members — it neither quotes a lone ASCII-letter datum as `(byte)'T'` nor throws; it just interpolates the raw string, producing invalid C#. Fix site: ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Enum/RawValue.cs:9, reuse or mirror `Literal`'s ascii-character-vs-integer branch. Covers: Cboe.BzxEquities.BinaryOrderEntry.Boe.v2.3, Cboe.BzxOptions.BinaryOrderEntry.Boe.v2.10, Cboe.C1Options.BinaryOrderEntry.Boe.v2.10, Cboe.C2Options.BinaryOrderEntry.Boe.v2.10, Cboe.CboeEquities.BinaryOrderEntry.Boe.v2.3.7 (CS1525, same cause — 4 bad members instead of 1), Cboe.EdgxEquities.BinaryOrderEntry.Boe.v2.3, Cboe.EdgxOptions.BinaryOrderEntry.Boe.v2.10.
+
+## value-name-collision-enclosing-type
+
+model defect: a Constant value shares its Name with the Type/Field that declares it
+
+first error: Model 'Nasdaq.Common.Xmp.Tcp.v1.0': element 'packet.xmppacket.payload.tipdatapacket.messagedelimiter' declares a Constant value 'Message Delimiter' with data '10' that resolves to the name 'MessageDelimiter', which is the name of the type that would declare it. Rename the value upstream. Generator gate is `ValueDeclarationNameCollisionException` (ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Value/ValueDeclarationNameCollisionException.cs), firing as designed. Root cause is upstream: OmiSpecifications/Nasdaq/Common/Headers/Xmp/Xmp.Tcp.v1.0.Source.xml declares both `<Type><Name>Message Delimiter</Name>...` (line 351) and `<Value><Name>Message Delimiter</Name><Value>10</Value>...</Value>` (line 371) with the identical Name, so the emitted constant name collides with its own enclosing type name. Propose renaming the `<Value>` block's `<Name>` (e.g. to "Line Feed") at line 372 in OmiSpecifications; not applied.
+
+## source-field-integer-not-ascii
+
+model defect: a field whose every declared value is a single ASCII letter is classified Translation=Integer instead of Ascii
+
+first error: Element 'Source' (packet.packetheader.source) value 'Incremental' data 'I' is unsupported: integer data is not decimal or 0x hexadecimal. `Scaled.CSharp.ZeroCopy.CSharp.Value.Literal.Integer` (ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Value/Literal.cs) is firing as designed — it is entitled to reject non-numeric data on an Integer-translated value. Root cause is upstream: OmiSpecifications/SmallX/Common/Headers/OrderBookFeed.PacketHeader.Udp.Source.xml declares `<Type><Name>Source</Name>...<Trait><Category>Translation</Category><Value>Integer</Value></Trait>...` (around line 121) while every one of its three `<Value>` entries (lines 145-167: Incremental='I', Snapshot='S', Index Snapshot='X') is a single ASCII letter with no numeric member at all — unlike the mixed numeric/ASCII enum-nonnumeric-ascii-value case above, nothing here needs an integer form. Propose changing the Source Type's Translation trait from Integer to Ascii; not applied. Covers: SmallX.Common.Headers.Sbe.v1, SmallX.OrderBookFeed.Sbe.v2.2 (both compile this shared header file).
+
+## nested-dispatch-key-not-direct-child
+
+generator defect: ZeroCopy dispatch key resolution requires the discriminator to be a direct child of the dispatch container
+
+first error: Model 'Nasdaq.Utp.Snapshot.Utp.v3.0': nested dispatch key 'serverpacket.servertcppayload.sequenceddatapacket.messageheader.messagecategory' is not a direct child of container 'serverpacket.servertcppayload.sequenceddatapacket'. Thrown from ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/InnerDispatchKey.cs. A known ZeroCopy dispatch-shape limitation, in the same family as `single-branch-case` and `length-disambiguated-dispatch`: the discriminator here is one level deeper (inside 'messageheader') than the dispatching container, and the generator's dispatch-key lookup only looks at direct children. Not yet traced to a specific line-level fix; flagging as a real ZeroCopy dispatch-shape gap rather than a model defect, since the model's messagecategory field is a legitimate nested discriminator.
 
 # Classes
 
@@ -502,6 +520,16 @@ Branch target is neither a generated message nor a branch container
 
 first error: Model 'B3.B3Derivatives.BinaryUmdf.Sbe.v1.6': Branch target 'Sequence Reset Message' (packet.message.payload.sequenceresetmessage) is neither a generated messag...
 
+Same root cause now also surfaces at build instead of generation for 93 mostly
+Nasdaq/Tadawul/Odx/NsxAustralia session-control branch targets (ClientHeartbeat,
+ClientHeartbeatPacket, AdminHeartbeat, SubscriberHeartbeat, SequenceResetMessage,
+and related empty session messages): generation stopped throwing the §53
+exception for these, so it emits Framing/Dispatch.cs with a `case ...: return
+X.Parse(payload);` call to a branch-target class X that was never generated,
+producing error CS0103 at build. The classification gap that produces §53 was
+never fixed, only unmasked at a later stage; every classes.tsv row here carries
+prev_stage=generation, prev_defect=§53.
+
 ## §55
 
 counted element has a non-integer count field
@@ -611,3 +639,203 @@ first error: error CS0102: The type 'SequencedMessage' already contains a defini
 CS0103 'MessageHeader' does not exist in the RoundTrip harness
 
 first error: error CS0103: The name 'MessageHeader' does not exist in the current context
+
+## classes-enum-nonnumeric-ascii-value
+
+generator defect: integer-enum member with single-character ASCII data crashes generation with a FormatException
+
+first error: The input string 'T' was not in a correct format. Classes side of the same model shape as ZeroCopy's `enum-nonnumeric-ascii-value` (see that key): NoUnspecifiedUnitReplay is a 1-byte Integer-translated field whose PDF-documented values mix numeric bytes (False=0, True=1) with ASCII-letter sentinels (Test=T, and for the v2.3.7 variant also U/E/A). `Scaled.CSharp.Classes.CSharp.Enum.CanonicalKey.For` (Classes/Scaled.CSharp.Classes/CSharp/Enum/CanonicalKey.cs:17) only checks `Is.Ascii.Character(element)` — the whole field's Translation trait — not the individual value's. Since the field is Integer, not Ascii, it falls through to `IntegerValue.For` (Classes/Scaled.CSharp.Classes/CSharp/Enum/IntegerValue.cs, which also does no numeric validation and returns 'T' verbatim) and then `ParseRawUlong.For`, which calls the equivalent of `ulong.Parse("T")` and throws. Fix site: CanonicalKey.For and the enum literal emission path need a per-value ascii-character check (mirroring ZeroCopy's `Literal.Integer`/`Is.Ascii.Character(value)`), not only a per-field one. Covers: Cboe.BzxEquities.BinaryOrderEntry.Boe.v2.3, Cboe.BzxOptions.BinaryOrderEntry.Boe.v2.10, Cboe.C1Options.BinaryOrderEntry.Boe.v2.10, Cboe.C2Options.BinaryOrderEntry.Boe.v2.10, Cboe.CboeEquities.BinaryOrderEntry.Boe.v2.3.7, Cboe.EdgxEquities.BinaryOrderEntry.Boe.v2.3, Cboe.EdgxOptions.BinaryOrderEntry.Boe.v2.10.
+
+## composite-timestamp-no-endian
+
+model defect: a Composite-rule emergent timestamp field carries no Endian trait of its own
+
+first error: Field 'PriorDayTradeDateAndTime' must have exactly one Endian trait. Little=False, Big=False. Fix the model/compiler upstream. `Siac.Cts.Output.Cta.v2.11.Hft`/`.b` declare 'Prior Day Trade Date And Time' (and its Original/Corrected siblings) as `<Rule><Type>Composite</Type>` in OmiSpecifications/Siac/Common/Edits/Siac.Cta.Timestamps.Edits.xml (around line 351), combining a `seconds` field and a nanosecond remainder with Multiply/Plus operators into one emergent field. The emergent field's compiled model element carries Size/Translation/Signedness/Memory traits but no Endian trait — none of its 5 addresses in Siac.Cts.Output.Cta.v2.11.Hft.binary.model.json (priordaytrademessage, priordaytradecancelerrormessage, fractionalpriordaytradecorrectionmessage, fractionalpriordaytrademessage, fractionalpriordaytradecancelerrormessage) has one. This is the Classes-side manifestation of the same upstream gap as ZeroCopy's `leaf-no-translation-or-endian` key, which already covers the sibling 'Corrected Prior Day Trade Date And Time' field on the same models; propose the compiler backfill an Endian trait onto a Composite-rule emergent element from its component field(s), or the spec declare one explicitly. Covers: Siac.Cts.Output.Cta.v2.11.Hft, Siac.Cts.Output.Cta.v2.11.b.
+
+## zc-counted-group-no-row-cursor
+
+generator defect: ZeroCopy walker does not yet support this counted group's row shape
+
+first error: the generator does not emit counted group 'X' because the group does not have a supported row cursor. `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Group/Sites.cs:33` (`Sites.UnsupportedReason`) names the first counted group in wire order whose `RowCursor.IsSupported` is false, or (same key, second branch) one that nests another counted group. Before this slice these groups produced an `Info` line and a `// TODO(C)` stub; the generator now fails generation instead of emitting partial coverage. Largest single bucket of the fail-loud slice: every Eurex T7 ETI version, the Ice iMpact versions, and most SBE-sourced messages with repeating groups land here. Fix site: `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Group/RowCursor.cs` (`IsSupported`) needs a wider row-cursor shape, or `CountedGroups.HasNestedCounted` needs nested-group emission; both are generator capability gaps, not model defects.
+
+## zc-walker-unsupported-path
+
+generator defect: no ZeroCopy walker exists for this tree's shape
+
+first error: no ZeroCopy walker for tree 'X': no path from its root to a message dispatch (or, same `Support.Reject` family: outer dispatch has a key the walker cannot read; loop step has no derivable byte bound; loop step states no Size rule so an outer dispatch inside it cannot skip one sized unit). Fix sites: `ZeroCopy/Scaled.CSharp.ZeroCopy/Source/Generation.cs:41` (no-path case) and `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/Support.cs:47-52` (`Reject`, the outer-key/bound/count-steps reasons; the bound reason nests a `CountOnly` message from `CountOnly.cs:42,86,184` — no Size/Optional rule to derive consumed bytes, or a Size rule with no dependency field). Header-only trees (Amd/Atp TcpHeader/UdpHeader), pure GapDetection trees, and transport-prefix trees with no reachable dispatch all land here. Before this slice these produced an `Info` line; the walker now fails loud instead of silently emitting no walker. Generator capability gap, not a model defect — covers the task's "walker limits" bucket.
+
+## zc-writer-nonstatic-prefix-child
+
+writer defect: a message's on-path prefix contains a non-static child, so the writer cannot lay out a fixed prefix before the message's variable region
+
+first error: the generator does not emit a writer for 'X' because child 'X' is not static. Fix site: `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/Writable.cs:163` (`Blocker`, the not-static clause) and `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/CountOnly.cs:84,111` (the same fact from the count-only path: "a child before the variable region is not static" / "child before the Optional appendages is not static"). Writer-only gap: the ZeroCopy parser (walker) handles these fields; only the writer's prefix-layout requirement rejects them. Attribute to the writer, not the model.
+
+## zc-writer-default-route-no-stamp
+
+writer defect: an outer dispatch's default case has no wire value the writer can stamp to select it
+
+first error: dispatch 'X' routes the walk through its default case and no stamp selects that route. Fix site: `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/Writable.cs:108` (`AssertTree`, `KeyStampedInEnd` clause). Same shape as the Nyse Pillar `packet.messages` default-route case named in the task brief: the parser's default case is a legitimate no-dependency branch, but the writer has no wire value to write when constructing that case's frame. Writer feature gap (a caller-supplied key value for a default on-path route), not a model defect — matches `output/cleanup-stage5-drcode-2.md`'s follow-up 10 ("Writer feature, not a defect").
+
+## zc-empty-packet-case-not-zero-byte
+
+walker defect: an empty-packet dispatch case's target is not a zero-byte static target, so the empty-packet method the composer selects for it is wrong
+
+first error: no empty-packet method for case 'X' of tree 'X': case target 'X' is not a zero-byte static target. Fix site: `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/Composer.cs:158` (`EmptyPacketCases`). This is the walker session-packet gap named in the task brief: the case target actually carries bytes of its own (for example the Memx Memoir session-message cases), so treating it as an empty packet is wrong; `docs/zerocopy-session-packets` is the slice that will teach the walker to frame a non-empty case here instead of routing it through the empty-packet path. Blocked on that slice, not a model defect.
+
+## zc-writer-off-path-case-in-loop
+
+writer defect: a dispatch inside the loop step has an off-path case the writer emits no unit for
+
+first error: dispatch 'X' has an off-path case 'X' inside the loop step; the writer emits no unit for it. Fix site: `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/Writable.cs:111` (and the default-case sibling at `:117`, "off-path default case ... no wire value selects it"). Same shape as the Miax MACH heartbeat-inside-the-loop case named in the task brief: the case is reachable by the parser but the writer has no per-unit emission for an off-path case nested in a loop step. Writer feature gap, not a model defect.
+
+## zc-empty-packet-offset-mismatch
+
+walker defect: the outer dispatch selecting an empty-packet case does not begin where the walk enters the loop step
+
+first error: no empty-packet method for case 'X' of tree 'X': outer dispatch 'X' does not begin where the walk enters the loop step. Fix site: `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/Composer.cs:161` (`EmptyPacketCases`, the offset clause; contract documented at `:138`). This is the "empty-packet offset shortcut" named in the task brief: the composer's empty-packet shortcut assumed the outer dispatch and the loop-step entry coincide, and this model's outer dispatch begins at a different offset. Walker gap, not a model defect.
+
+## zc-writer-default-branch-no-wire-value
+
+writer defect: a default Branch case targets a message with no wire value the writer can use to select it
+
+first error: dispatch 'X' has a default Branch case targeting message 'X'; no wire value selects a default case, so the writer cannot route to it. Fix site: `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/Route.cs:45`. Distinct from the resolved `default-branch-case` key (that one is a parser-side rejection removed in the flat-dispatch-rejections slice): this is the writer's inability to construct a frame for a legitimate default Branch case, because writing one requires a value on the wire that identifies it and none exists. Writer feature gap, not a model defect.
+
+## zc-writer-optional-rule-leaf
+
+writer defect: a message's on-path prefix contains a leaf carrying an Optional rule, which the writer's fixed-prefix layout cannot place
+
+first error: the generator does not emit a writer for 'X' because child 'X' carries an Optional rule. Fix site: `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/Writable.cs:147` (`Blocker`). Same family as `zc-writer-nonstatic-prefix-child` (adjacent clauses in the same `Blocker` switch) but for an Optional rule instead of a non-static child; for example Nasdaq OUCH v5.0's `AccountQueryMessage.AppendageLength` named in the task brief. Writer-only gap, not a model defect.
+
+## zc-writer-size-rule-not-last-child
+
+writer defect: a child carrying a Size rule is not the message's last child, so the writer's fixed-prefix layout cannot place it
+
+first error: the generator does not emit a writer for 'X' because child 'X' carries a Size rule but is not the last child. Fix site: `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/Writable.cs:159` (`Blocker`, adjacent to the Payload-rule clause at `:157`). Writer-only gap, not a model defect.
+
+## zc-writer-optional-dependency-layout-omits
+
+writer defect: an Optional-ruled field whose rule carries a Dependency, or a trailing Optional-run member, is one the emitted Layout struct excludes, so the writer has no field to stamp the present form through
+
+first error: child 'X' carries an Optional rule with a dependency, so 'X''s layout omits it and the writer cannot return its present form (or, same clause: ''X''s layout omits child 'X', so the writer cannot return its present form' when the Optional rule carries no dependency). Fix site: `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/Writable.cs:238` (`LayoutExclusionBlocker`) and `:253` (`LayoutExclusionMessage`). The writer-regions slice's rule 3/4 present-form logic (`Blocker`) accepts these fields, but the Layout emitter (`LayoutFields.StructFields`) independently treats a Dependency-bearing Optional as type-dynamic and excludes it from the struct, so the writer has no member to write through even though it would otherwise permit the present form. Covers Jse `newordermessage`/`executionreportmessage`'s `selftradepreventionkey`, Jse Mitch `symboldirectorymessage`'s `leg1symbol`, and Txse `tradingsessionstatusmessage`'s `tradingsessionstatusoperationalhaltreason` (Bale and Feed). Writer/Layout-emitter gap, not a model defect; the follow-up slice ("option B") is to widen the Layout struct to cover the present form for these fields instead of excluding them.
+
+## zc-writer-optional-tail-conflict
+
+writer defect: two trailing Optional-ruled fields read one dependency with different parameters, so no single present form can satisfy both
+
+first error: children 'X' and 'X' both carry Optional rules on 'X' with different parameters. Fix site: `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/Writable.cs:224` (`OptionalBlocker`, `OptionalTailConflict` clause). Siac Cqs `longquotemessage`'s `nationalbestbidlongappendage` and `nationalbestofferlongappendage` each carry an `Optional` rule on `nationalbboindicator` with a different `Data` value; per the writer-regions plan's rule 4, at most one can be present on the wire, so the writer correctly refuses to pick one for the caller. Writer feature gap (the writer would need a caller-selected case among the mutually exclusive trailing members), not a model defect.
+
+## zc-writer-region-not-trailing
+
+writer defect: a region's own Size rule reads a route stored length, but the region does not end where the unit ends, so the writer cannot bound it
+
+first error: element 'X' carries a Size rule but does not end where the unit ends. Fix site: `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/Writable.cs:189` (`Blocker`, `LengthBindings.NotTrailing` clause). Coinbase `gapfillmessage`'s `padding` field is exactly the case the writer-regions plan named out of scope: the loop step `sbemessage` has its own trailing `padding` sibling after the `payload` dispatch, so the leaf's region ends before the unit does, and the marker `padding`'s Optional rule also carries an `Index` parameter the corpus spells both `before` and `Before` with no reader on `main`. Blocked on a model/loader question (an `Index` parameter with a stated semantics) before a writer rule can apply; not a defect this slice can fix.
+
+## zc-reassemble-length-dependency-not-one
+
+model or upstream defect: a Reassemble rule states a length dependency count other than one
+
+first error: step 'X' states a Reassemble rule with a length dependency count other than one. Fix site: `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/Reassemble.cs:49`. One of the task brief's "Reassemble/probe gaps." A Reassemble rule is defined to read exactly one length dependency; a model whose compiled rule names zero or more than one needs the upstream fact traced (ScaledCompilers rule-building for this step) before this can be classified further as model or compiler defect.
+
+## zc-size-rule-dispatch-targets-disagree
+
+model defect: an outer dispatch's targets do not agree on carrying a Size rule
+
+first error: dispatch targets of 'X' do not agree on a Size rule: some carry a Size rule and some do not, once targets whose Size rule only restates the walk bound are treated as unsized. Fix site: `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/RootBlockLength.cs:26` (`AssertConsistent`). Same clause narrowed by commit `1f16e65` ("Exclude dispatch targets whose Size rule restates the walk bound..."); this row is the residual case that still disagrees after that exclusion. Size-rule contradiction in the task brief's taxonomy — needs the specific model's dispatch targets traced against their Size rules in the compiled model before a spec-level fix site can be named.
+
+## zc-size-rule-exclusion-mismatch
+
+model defect: two length rules on the same field disagree on how many bytes they exclude from the frame size
+
+first error: length rules on 'X' and 'X' both read 'X' but exclude N and N (or N and -N) bytes from the frame size. Fix site: `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/LengthBindings.cs:110` (`AssertConsistent`, the exclusion-mismatch clause). Size-rule contradiction in the task brief's taxonomy: two rules derived from the same field disagree on the excluded-byte count, which traces to the compiled Size/Payload rules for that field. Needs the specific model's rule pair traced upstream (`ScaledCompilers`) before a spec-level fix site can be named.
+
+## memx-memo-missing-message-session
+
+model defect (not blocking): Memx.MemxEquities.Memo.Sbe session-frame targets carry no `Message=Session` characteristic
+
+The compiled model gives the Memx `MemoirDepthFeed`/`MemoirLastSale`/`MemoirTopOfBook` and Nasdaq `SoupBin` session-frame targets (Heartbeat, Login, Logout, and similar) an action with `characteristics: [{"Message": "Session"}]` (5 in each Memoir model, 15 in SoupBin). The equivalent `Memx.MemxEquities.Memo.Sbe.*` session-frame targets (for example `clientpacket.clientdata.loginrequestmessage`, address `Login Request Message`) carry no `actions` at all, so the characteristic is absent. This is an inconsistency between sibling protocol specifications, not a fact any generator is entitled to require: the ZeroCopy session-packet dispatch (`ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/PacketDispatch.cs`) selects session-frame targets from the packet dispatch's off-path Branch cases alone and does not read `Message=Session` at all, so every `Memx.MemxEquities.Memo.Sbe.*` model still generates and passes. Fix site (propose only, not applied): `OmiSpecifications` — the Memx `Memo.Sbe` declarations' session message elements (Login Request/Accepted/Rejected, Logout, Heartbeat) would need the same `<Insert>`/characteristic declaration the Memoir and SoupBin declarations carry, once an owner confirms the omission is a transcription gap rather than an intentional difference between the two Memx protocols.
+
+## rule-type-complex-unmapped
+
+generator defect: the shared model loader cannot parse a `Complex` rule type the compiled model carries
+
+first error: Requested value 'Complex' was not found. `ScaledGenerators/Binary/Scaled.Binary.Model.Reader/Load/Json/Rules.cs:18` calls `Enum.Parse<RuleType>(...)` on every rule's `type` string with no fallback; `ScaledGenerators/Binary/Scaled.Binary.Model/Definitions/Enums/RuleType.cs` has no `Complex` member, so loading throws before any target-specific generator runs. All 54 affected models are Nse (NseCd/NseCm/NseCom/NseFo Mtbt/MtbtNdal/Recovery/Snapshot/Binary and the NnfBcast/Nnf/NnfDirect/NnfTrimmed order-entry models); each carries at least one field whose `rules` array holds an entry with `"type": "Complex"` and its own nested traits (for example `Nse.NseCd.Mtbt.Binary.v6.8`'s `Order Id` field, address `packet.message.payload.newordermessage.orderid`, traits `Translation=FloatingPoint`, carries a rule `{"type": "Complex", "traits": [{"Size": "8"}, {"Translation": "Integer"}, {"Signedness": "Unsigned"}]}`). This loader gap masks the pre-existing `floating-point-field` defect on the same fields (previously the first error reported was the FloatingPoint-translation gap in ZeroCopy; now loading fails earlier, before that field-level classification runs). Not caused by the ZeroCopy stream-assembly slice: the throw site is in `ScaledGenerators`, shared model-loading infrastructure outside CSharpGenerators, and the affected models are unrelated to the slice's Reassemble/stream/session-packet scope. Needs `ScaledGenerators` owner attention to add a `Complex` case (or an explicit unsupported-type message) to `RuleType` and its consumers.
+
+## classes-dispatch-session-action-no-class
+
+generator defect: the root dispatch switch calls `.Parse` on session-action message targets that never get a generated class
+
+first error: The name 'ServerHeartbeat' does not exist in the current context (also seen as `AdminHeartbeat`, `ServerHeartbeatPacket`, `HeartbeatMessage`, `ServerHeartbeatMessage`, `ClientHeartbeatMessage`, each in that model's `Framing/Dispatch.cs`). A session-control target such as Asx's `ServerHeartbeat` carries the `Message` characteristic (`Is.Message.Type` true, so `Dispatch/Validation.cs:29`'s "neither a generated message nor a branch container" guard does not fire) but its element `Type` is `ElementType.Action`, not `ElementType.Group`, so `ClassesFiles.cs:53`'s `context.Model.Structs(Is.Message.Type)` — which first filters to `Is.Struct` (`ElementType.Group`) — never emits a class file for it. `Files/Packet/Components/DispatchSwitchCases/List.cs` and `DispatchCase.cs:15` build every case through `CSharp/Dispatch/ParseExpression.cs`, which always emits `{Declaration}.Parse(payload)` with no check for `Is.Message.Action`/`Is.Empty`, so the case references a class that was never generated. `EmptyDispatchPredicateConstants/List.cs` only recognizes `Is.Empty` cases, so `IsKnownEmptyType` also stays `false` for these targets — confirmed in the generated Asx and Nasdaq SoupBin output, where `IsKnownEmptyType` returns `return false;` with no names even though `ServerHeartbeat`/`ServerHeartbeatPacket` are session-control targets. Fix site: `Classes/Scaled.CSharp.Classes/CSharp/Dispatch/ParseExpression.cs` (and/or `Dispatch/Validation.cs`'s message-target check) needs a case for `Is.Message.Action` targets, parallel to the existing `Is.Empty` handling. Covers 52 models across Asx, Bist, Biva, Cme (Globex Mdp3/Settlements/Streamlined), Iex, Jnx, Jpx, Nasdaq (Common SoupBin, Gemx/Ise/Mrx/Ntx/Phlx Options Glimpse, Nsm/Ntx/Psx Orders Ouch, Ntx TotalView Glimpse, Utp Snapshot), NsxAustralia, Odx, Tadawul.
+
+## classes-roundtrip-header-selection-mismatch
+
+generator defect: the RoundTrip padding-test selector emits a test for every `Is.Header` struct in the model, not only the one header file that `HeaderFiles.For` actually generates
+
+first error: The name 'MessageHeader' does not exist in the current context (`Siac.GapDetection.Cta.v3/RoundTrip/Program.cs`). `Siac.GapDetection.Cta.v3` carries two `Is.Header` Group elements: `packet.blockheader` (`Header=Packet`) and `packet.message.messageheader` (`Header=Message`). `Files/Header/HeaderFiles.cs:11` emits exactly one header class, the single resolved `generatedPacketHeader` (here `BlockHeader.cs`); it never emits a file for a message-level header. `Files/Test/Components/RoundTrip/TestSelection/List.cs:14` instead iterates `context.Model.Structs(Is.Header)` — every header in the tree — and calls `RoundTrip.List.ForHeader` for each, so it also emits a padding-clear test for `packet.message.messageheader`, whose declaration name (`CSharp.Message.ClassDeclaration.For`) resolves to `MessageHeader`, a class that was never generated. Fix site: `Classes/Scaled.CSharp.Classes/Files/Test/Components/RoundTrip/TestSelection/List.cs:14` should select from the same header set `HeaderFiles.For` emits, not every `Is.Header` struct in the model. Covers Siac.GapDetection.Cta.v3 at the build stage; `Siac.Cqs.Input.Cta.v2.9.b` and `Siac.Cts.Input.Cta.v2.7.f` carry the same two-header shape but now fail earlier, at generation, under `classes-nested-dispatch-empty-target-unsupported`.
+
+## classes-bitflag-name-collision-clear
+
+generator defect: a bit-flag property named directly from its model value collides with the base `Field.Clear()` lifecycle method
+
+first error: 'AdapFlagsField.Clear' hides inherited member 'Field.Clear()'. Use the new keyword if hiding was intended. The Cboe Pitch `AdapFlags` bitfield carries a one-bit child literally named "Clear". `Classes/Scaled.CSharp.Classes/Files/Field/Components/Value/BitfieldChildValue/BitfieldFlagValue.cs:8` sets `Name => Format.PascalCase(Element.Name)` with no check against reserved member names on the field's base class, so it emits `public bool Clear => (Value & ClearMask) != 0;` in the same class that already declares `public override void Clear()` from the field lifecycle. The property does not throw a hard conflict (a property and a zero-arg method can share a name in C# when one hides the other) but does trigger CS0108, and the generator's builds treat warnings as errors. Fix site: `Classes/Scaled.CSharp.Classes/Files/Field/Components/Value/BitfieldChildValue/BitfieldFlagValue.cs:8` needs to qualify or rename a flag name that collides with a `Field` base member (`Clear`, and any other reserved lifecycle name). Covers Cboe.ByxEquities.SummaryDepth.Pitch.v1.0.4, Cboe.BzxEquities.SummaryDepth.Pitch.v1.0.4, Cboe.EdgaEquities.SummaryDepth.Pitch.v1.0.4, Cboe.EdgxEquities.SummaryDepth.Pitch.v1.0.4; all four previously failed generation under §38, which this run fixed.
+
+## classes-roundtrip-catch-unqualified-exception
+
+generator defect: the RoundTrip failure-catch block writes a bare `catch (Exception ex)` that collides with a model-defined type also named `Exception`
+
+first error: 'Exception' is an ambiguous reference between 'Hkex.HkexSecurities.Index.Omd.Exception' and 'System.Exception'. The Hkex Omd models generate an enum named `Exception` (`Enums/Exception.cs`) in the same namespace as the generated `RoundTrip/Program.cs`. `Classes/Scaled.CSharp.Classes/Files/Test/Components/RoundTrip/RoundTripFailureCatch.cs:11` hardcodes `catch (Exception ex)`, which the compiler cannot resolve unambiguously once a sibling type shares that name. Fix site: `RoundTripFailureCatch.cs:11` should qualify the catch as `System.Exception`. Covers Hkex.HkexSecurities.Index.Omd.v1.44/v1.45, Hkex.HkexSecurities.IndexRefresh.Omd.v1.44/v1.45, Hkex.HkexSecurities.IndexRetrans.Omd.v1.44/v1.45; all six previously passed.
+
+## classes-reassemble-bound-unsupported-shape
+
+generator defect: `Reassembly.Require` only accepts a Reassemble rule whose target is exactly the walk's per-message loop bound, and `Bound.For` only derives that bound from a `Size` rule; two other valid wire shapes fail loudly
+
+first error: Model 'Lseg.Lse.Level1Recovery.Gtp.v26.2': Reassemble on 'packet' requires the walk's message bound, but the bound is 'packet.message'. Also seen as "...but the bound is 'none'." and "...must depend on the Size dependency '...'." — all three are different clauses of the same `Classes/Scaled.CSharp.Classes/CSharp/Framing/Reassembly.cs:19-30` check. Two distinct wire shapes hit it: (1) Lseg (23 models) and OtcMarkets (3 models) declare `Size` and `Reassemble` on the outer `packet` element, which itself carries a repeated, individually `Size`-ruled `packet.message` child (`Count` on `packet.unitheader.messagecount`, `Size` on `packet.message.messageheader.messagelength`) — one length-prefixed TCP/UDP packet holds N self-lengthed messages. `Bound.For` (`CSharp/Framing/Bound.cs:33-40`) walks to the loop step (`packet.message`) and finds its own `Size` rule, so it reports the bound as `packet.message`, which then fails to match `reassemble.Address` (`packet`). (2) The 20 Memx `Memo.Sbe`/`RiskControl.Sbe` models and `Memx.MemxEquities.CommonHeader.Tcp.v1.2` declare `Reassemble` directly on the packet root with its own `Dependency` parameter and no companion `Size` rule anywhere in the tree (single message per packet, no repetition); `Bound.For` only ever trusts a `Size` rule, so `SizedBelowLoop` returns null and the bound is reported as `none`. `Nasdaq.Common.Xmp.Tcp.v1.0` hits the second clause of the same check: its `Reassemble` dependency (`packet.xmppacket.packetheader.bodylength`) does not match the `Size` dependency `Locate.Size.Dependency` resolves for the bound it does find. None of these are model defects — each wire shape is a real, unremarkable framing pattern (packet-level length prefix around repeated self-lengthed messages; a single Reassemble-only frame with no inner repetition) that the newly rule-driven walker does not yet cover. Fix site: `Classes/Scaled.CSharp.Classes/CSharp/Framing/Reassembly.cs` and `Bound.cs` need to accept a Reassemble target above the loop step when the loop step's own Size rule nests inside it, and to derive a bound directly from a Reassemble rule's own `Dependency` parameter when no separate `Size` rule exists. Covers 47 models: 23 Lseg (Lse Level1/Level2 Mbo/Mbp/Incremental Recovery+Replay, Mifid2PostTrade Recovery+Replay, TradeEcho Level2Incremental/Mifid2PostTrade Recovery+Replay, Turquoise Recovery+Replay), 3 OtcMarkets (LinkNqb/MoonAts/Overnight Retransmission), 20 Memx (MemxEquities CommonHeader.Tcp.v1.2 + Memo.Sbe.v1.1/1.2/1.6/1.8/1.9/1.10/1.11/1.12, MemxOptions Memo.Sbe.v1.3/1.5.b/1.6.a/1.6.b/1.7/1.8/1.9/1.10 + RiskControl.Sbe.v1.3/1.6/1.7), and Nasdaq.Common.Xmp.Tcp.v1.0.
+
+## tmx-startofframe-missing-signedness
+
+model defect: the Tmx Xmt header's "Start of Frame" field declares Size/Translation/Memory but no Signedness trait
+
+first error: Element 'packet.frameheader.startofframe' has no supported enum underlying type. (Parameter 'element') `Classes/Scaled.CSharp.Classes/CSharp/Enum/Type.cs` walks `Is.OneByte.SignedInteger`/`Is.OneByte.UnsignedInteger` through `Is.EightByte.*` before throwing; none match because the compiled field carries only `Size=1`, `Translation=Integer`, `Memory=Bytes`, with no `Signedness` trait at all. Confirmed at the source: `OmiSpecifications/Tmx/Common/Headers/Xmt.Header.Udp.v1.1.Source.xml:104-120` declares the `Start of Frame` `<Type>` with `Size`, `Translation`, and `Memory` `<Trait>` blocks only — no `Signedness` trait, unlike its sibling `Protocol Version` type a few lines below. Fix site (propose only, not applied): `OmiSpecifications/Tmx/Common/Headers/Xmt.Header.Udp.v1.1.Source.xml`, add a `<Trait><Category>Signedness</Category><Value>Unsigned</Value></Trait>` to the `Start of Frame` `<Type>` block (the field's one enumerated value, `New Frame`=2, is consistent with an unsigned marker byte, but an owner should confirm against the vendor document before this is applied). Covers all 9 models that include this shared header: Tmx.QuantumFeed.AlphaLevel1.Xmt.v2.1/v2.2, Tmx.QuantumFeed.AlphaLevel2.Xmt.v2.1/v2.2, Tmx.QuantumFeed.TsxTsxvLevel1.Xmt.v2.6/v2.8, Tmx.QuantumFeed.TsxTsxvLevel2.Xmt.v2.1/v3.6, Tmx.QuantumFeed.XmtHeader.Udp.v1.1.
+
+## classes-dispatch-multibyte-ascii-discriminator
+
+generator defect: the direct-discriminator check only accepts an integer or single-character ASCII field, not a multi-byte justified/filled ASCII mnemonic
+
+first error: Dispatch 'packet.messagebody' has an unsupported direct discriminator type or width. `Box.Options.Sola.Multicast.Hsvf.v1.5`'s `packet.messageheader.messagetype` is a 2-byte, left-justified, space-filled ASCII field carrying mixed 1- and 2-character mnemonic codes (`U`, `V`, `C`, `CS`, `FS`, `GC`, ...). `Classes/Scaled.CSharp.Classes/CSharp/Framing/Branch.cs:56-59` requires the direct discriminator element to satisfy `Is.Integer.Type` or `Is.Ascii.Character` (a single unpadded ASCII byte); a justified/filled multi-byte ASCII field satisfies neither, so every dispatch keyed on this field throws regardless of width. This is a real, common wire shape for these Sola HSVF protocols, not a model defect — the field's traits are unremarkable Ascii+Justified+Fill. Fix site: `Classes/Scaled.CSharp.Classes/CSharp/Framing/Branch.cs:56-59` needs to also accept a multi-byte justified/filled Ascii discriminator, not only `Is.Ascii.Character`. Covers Box.Options.Sola.Multicast.Hsvf.v1.5/v1.8/v1.9, Box.Options.Sola.Unicast.Hsvf.v4.5.1, Tmx.Mx.Sola.Multicast.Hsvf.v1.11/v1.13/v1.14/v2.1.
+
+## classes-composite-dispatch-empty-target-unsupported
+
+generator defect: composite-key dispatch explicitly rejects any case whose target is an empty element
+
+first error: Model 'Nasdaq.Uqdf.Output.Utp.v3.0.Hft': composite-key dispatch target 'moldudp64packet.messages.message.udppayload.startofdaymessage' has no body. `Classes/Scaled.CSharp.Classes/Files/Packet/Components/CompositeDispatchChildren/List.cs:16-19` throws `NotSupportedException` by design — its class comment states the composite-key container "has no empty-type predicate" — whenever a case target is `Is.Empty`, because composite-key dispatch (new in this pass) has no equivalent of the root dispatch's `IsKnownEmptyType` mechanism. Fix site: `Classes/Scaled.CSharp.Classes/Files/Packet/Components/CompositeDispatchChildren/List.cs` needs an empty-type predicate for composite-key dispatch, the same feature `classes-nested-dispatch-empty-target-unsupported` needs for nested dispatch. Covers Nasdaq.Uqdf.Output.Utp.v3.0.Hft, Nasdaq.Utdf.Output.Utp.v3.0.Hft (both regressions from passing), and Siac.Cts.Output.Cta.v2.11.Hft (previously §67).
+
+## classes-double-consume-guard-nested-header
+
+generator defect (needs investigation): the double-consume guard assumes no message body ever re-declares its own dispatch-key field, which does not hold for the Nyse Pillar models
+
+first error: Double-consume invariant violated in model 'Nyse.AmexOptions.BinaryGateway.PillarStream.v3.25': message 'Login Message' includes dispatch-key source field (address 'pillarstreammessage.loginmessage.msgheader.msgtype') among its descendants. The caller has already advanced past the header; the message parse constructor must not re-consume a dispatch-key field. `Classes/Scaled.CSharp.Classes/Files/Container/Components/Parsing/DiscriminatorFieldsGuard.cs:20-27` throws for any target whose own descendant tree contains the discriminator field's address. For these three Nyse Pillar models, `Login Message`'s compiled tree does contain `msgheader.msgtype` among its own descendants — the model represents each message's header as a nested child of the message rather than a sibling consumed once before dispatch. Whether that nested-header shape is itself correct (matching the wire) or whether the guard's assumption is too strict for a model that legitimately re-declares its header inline has not been confirmed; this needs a `Classes` generator owner to decide whether the fix is to skip re-parsing the nested header field during the message body walk, or to loosen/scope the guard. Fix site: `Classes/Scaled.CSharp.Classes/Files/Container/Components/Parsing/DiscriminatorFieldsGuard.cs`. Covers Nyse.AmexOptions.BinaryGateway.PillarStream.v3.25, Nyse.ArcaOptions.BinaryGateway.PillarStream.v3.25, Nyse.Options.StreamProtocol.PillarStream.v1.6; all three previously failed generation under §62, which this run fixed.
+
+## classes-nested-dispatch-empty-target-unsupported
+
+generator defect: nested dispatch methods have no empty-type predicate, unlike the root dispatch overload, and explicitly reject an empty case target
+
+first error: Model 'Siac.Cqs.Input.Cta.v2.9.b': nested dispatch 'packet.message.categorypayload.controlmessage.controlmessagepayload' targets empty element 'packet.message.categorypayload.controlmessage.controlmessagepayload.startofdaymessage'; a nested dispatch method has no empty-type predicate to serve it. `Classes/Scaled.CSharp.Classes/Files/Packet/Components/NestedDispatchMethods/List.cs:17-21` throws `NotSupportedException` by design for any `Is.Empty` case target inside a nested (container-routed) dispatch; the class comment states this limitation explicitly. Fix site: `Classes/Scaled.CSharp.Classes/Files/Packet/Components/NestedDispatchMethods/List.cs` needs the same empty-type predicate the root dispatch overload has via `Files/Packet/Components/EmptyDispatchPredicate.cs`. Covers Siac.Cqs.Input.Cta.v2.9.b, Siac.Cts.Input.Cta.v2.7.f; both previously failed at the build stage under §69 (the same models' `classes-roundtrip-header-selection-mismatch` two-header shape), and now fail earlier, at generation.
+
+## classes-boe-logout-messagetype-collision
+
+model defect (needs confirmation): one Cboe BOE message-type code routes to both an empty client message and a parsed server message
+
+first error: Model 'Cboe.CboeEquities.BinaryOrderEntry.Boe.v2.3.7': one dispatch code targets both empty and parsed elements. `Classes/Scaled.CSharp.Classes/CSharp/Dispatch/Validation.cs:35-37` throws when the same wire value routes to both an empty case and a routed (parsed) case. In this model, `packet.message`'s Branch rules use `Data: '0x02'` twice: once for the empty `packet.message.logoutrequestmessage` (client→server) and once for the non-empty `packet.message.logoutmessage` (server→client, carries a `Logout Reason` field). Both share one dispatch tree under `packet.message` with no direction split, unlike sibling protocols (for example Memx `Memo.Sbe`) that compile client-originated and server-originated messages into two separate root trees. Whether this is a compiler defect (client/server BOE messages should be split into separate trees the way Memx's are) or a legitimate same-value-different-direction wire shape that the Branch model can't represent as one dispatch has not been confirmed with an owner. Fix site (propose only, not applied): `ScaledCompilers`, wherever the packet tree is assembled for `Cboe.CboeEquities.BinaryOrderEntry.Boe.v2.3.7` (or the shared Boe loader), would need to route client-originated and server-originated messages into separate dispatch trees by `Origin`.
+
+## classes-pcap-harness-silent-error
+
+unresolved: a Nyse ArcaEquities pcap fixture fails with no reported error text, cause not yet known
+
+first error: Packet Nyse.ArcaEquities.IntegratedFeed.Pillar.v2.5.g/ReplaceOrderMessage.pcap exited 1. The retained packet-fixture log (`logs/packets/Nyse.ArcaEquities.IntegratedFeed.Pillar.v2.5.g.ReplaceOrderMessage.log`) shows `Packets: 1, Messages: 1, Errors: 1` with no exception text; the generated `Test/Program.cs` harness increments an `errors` counter on a caught exception but never prints `ex.Message` or the exception type, so the cause is not visible from the retained log, and the generated project is not kept after the run to rerun directly. This row was already an unattributed TODO before this run (previously failing on a different pcap in the same folder, `CrossTradeMessage.pcap`, also with no detail), so the pcap that trips it appears to vary run to run rather than being fixed by this pass. Blocked on: rerunning `sj verify-classes-all --keep` (or `sj check-classes Nyse.ArcaEquities.IntegratedFeed.Pillar.v2.5.g`) and reading the kept project's Test harness output directly, or adding exception detail to the generated harness's failure branch, to see the actual thrown message.
+
+# Compile
+
+## §70
+
+case-sensitive Pdf.xml glob misses lowercase pdf.xml source files on Linux
+
+first error: Missing Source: Asx.AsxDerivatives.Ntp.Itch.v1.05.Pdf.xml. Compiler defect, not a model defect. ScaledCompilers/Binary/Scaled.Binary.Specification.Builder/Library/Dictionaries/Sources.cs:79 indexes source files with `Directory.EnumerateFiles(root, "*.Pdf.xml", SearchOption.AllDirectories)`. Every affected declaration's actual OmiSpecifications file is named with a lowercase extension (for example Asx/Ntp/Asx.AsxDerivatives.Ntp.Itch.v1.05.pdf.xml, Nyse/Common/Source/Equities/BinaryGateway/Nyse.Equities.PillarStream.BinaryGateway.v5.17.pdf.xml, and the sibling v5.8 file). .NET's glob matching is case-sensitive on Linux, so the pattern silently excludes them; the previous good run recorded `/Users/sean/...` paths, i.e. macOS, where HFS/APFS matches case-insensitively and hid the bug. Propose changing the pattern to a case-insensitive match (e.g. `EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive }`) or lowercasing both sides of the comparison; the same risk applies to the other four extension patterns in `FilesIn` (`*.Source.xml`, `*.Exchange.xml`, `*.Xls.xml`, `*.Msgs.Txt`, `*.asn`) if any on-disk file uses different case. Covers all 7 compile.tsv rows: asx.asxderivatives.ntp.itch.v1.05, nyse.amexequities.binarygateway.pillarstream.v5.17, nyse.arcaequities.binarygateway.pillarstream.v5.17, nyse.nationalequities.binarygateway.pillarstream.v5.17, nyse.nyseequities.binarygateway.pillarstream.v5.17, nyse.nyseequities.binarygateway.pillarstream.v5.8, nyse.texasequities.binarygateway.pillarstream.v5.17.
