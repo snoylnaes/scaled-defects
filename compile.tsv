@@ -1,2 +1,14 @@
-# run=/Users/sean/code/scaled/ScaledCompilers/output/compile-binary-all-hpq6pdpi csharpgenerators=d4952da64f1ee8d729350eda513e55a40a7d2ebb scaledcompilers=76ff1d9221b4fed00eaea5e2cf90c511079e56e3 omispecifications=76c0531bcd31eb892e61730060ea024e3a27f319
+# run=/home/sean/code/scaled/ScaledCompilers/output/compile-binary-all-jnv_4bjg csharpgenerators=e9c7e4ef940c8964e47ca71b35026f78d86b34e6 scaledcompilers=32934010679928e958cdf88b5375f66e82199977 omispecifications=60ddb9cf2fa0c8a363021137a8f980b201954ceb
 model	error	prev_error	defect	prev_defect	run
+asx.asxderivatives.ntp.itch.v1.05	Missing Source: Asx.AsxDerivatives.Ntp.Itch.v1.05.Pdf.xml		§70		/home/sean/code/scaled/ScaledCompilers/output/compile-binary-all-jnv_4bjg
+nyse.amexequities.binarygateway.pillarstream.v5.17	Missing Source: Nyse.Equities.PillarStream.BinaryGateway.v5.17.pdf.xml		§70		/home/sean/code/scaled/ScaledCompilers/output/compile-binary-all-jnv_4bjg
+nyse.amexequities.binarygateway.pillarstream.v6.0	Missing Source: Nyse.Equities.PillarStream.BinaryGateway.v6.0.pdf.xml		§70		/home/sean/code/scaled/ScaledCompilers/output/compile-binary-all-jnv_4bjg
+nyse.arcaequities.binarygateway.pillarstream.v5.17	Missing Source: Nyse.Equities.PillarStream.BinaryGateway.v5.17.pdf.xml		§70		/home/sean/code/scaled/ScaledCompilers/output/compile-binary-all-jnv_4bjg
+nyse.arcaequities.binarygateway.pillarstream.v6.0	Missing Source: Nyse.Equities.PillarStream.BinaryGateway.v6.0.pdf.xml		§70		/home/sean/code/scaled/ScaledCompilers/output/compile-binary-all-jnv_4bjg
+nyse.nationalequities.binarygateway.pillarstream.v5.17	Missing Source: Nyse.Equities.PillarStream.BinaryGateway.v5.17.pdf.xml		§70		/home/sean/code/scaled/ScaledCompilers/output/compile-binary-all-jnv_4bjg
+nyse.nationalequities.binarygateway.pillarstream.v6.0	Missing Source: Nyse.Equities.PillarStream.BinaryGateway.v6.0.pdf.xml		§70		/home/sean/code/scaled/ScaledCompilers/output/compile-binary-all-jnv_4bjg
+nyse.nyseequities.binarygateway.pillarstream.v5.17	Missing Source: Nyse.Equities.PillarStream.BinaryGateway.v5.17.pdf.xml		§70		/home/sean/code/scaled/ScaledCompilers/output/compile-binary-all-jnv_4bjg
+nyse.nyseequities.binarygateway.pillarstream.v5.8	Missing Source: Nyse.NyseEquities.BinaryGateway.PillarStream.v5.8.pdf.xml		§70		/home/sean/code/scaled/ScaledCompilers/output/compile-binary-all-jnv_4bjg
+nyse.nyseequities.binarygateway.pillarstream.v6.0	Missing Source: Nyse.Equities.PillarStream.BinaryGateway.v6.0.pdf.xml		§70		/home/sean/code/scaled/ScaledCompilers/output/compile-binary-all-jnv_4bjg
+nyse.texasequities.binarygateway.pillarstream.v5.17	Missing Source: Nyse.Equities.PillarStream.BinaryGateway.v5.17.pdf.xml		§70		/home/sean/code/scaled/ScaledCompilers/output/compile-binary-all-jnv_4bjg
+nyse.texasequities.binarygateway.pillarstream.v6.0	Missing Source: Nyse.Equities.PillarStream.BinaryGateway.v6.0.pdf.xml		§70		/home/sean/code/scaled/ScaledCompilers/output/compile-binary-all-jnv_4bjg
