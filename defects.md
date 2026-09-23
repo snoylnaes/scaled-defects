@@ -300,6 +300,156 @@ generator defect: two independent type-selection functions disagree on a Unix-ep
 
 first error: error CS0029: Cannot implicitly convert type 'ulong' to 'System.DateTime'. The field carries traits `Translation=Integer`, `SemanticType=Timestamp`, `Unit=Microseconds`, `Epoch=Unix` (for example `Tmx.TsxAlpha.QuantumFeedLevel2.Xmt.v2.1`'s `packet.body.bodymessage.businessmessage.orderbookedmessage.prioritytimestamp`, `Models/Binary/Tmx/Tmx.TsxAlpha.QuantumFeedLevel2.Xmt.v2.1.binary.model.json`). `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Field/DataType.cs` (`DataType.For`) types the message-class property `DateTime` for any element that satisfies `Is.Timestamp.Type(element) && Is.Epoch.Unix(element)`, with no check on `Unit`. `ZeroCopy/Scaled.CSharp.ZeroCopy/Files/Type/Elements.cs` (`IntegerFor`) selects the field's own type file by checking `Is.Unix.Nanosecond.Timestamp`, `Is.Unix.Millisecond.Timestamp`, and `Is.Unix.Second.Timestamp` in turn, with no `Is.Unix.Microsecond.Timestamp` case; a microsecond field falls through to the plain `Integer.Element.For` builder, which decodes to `ulong` (`Types/PriorityTimeStamp.cs` in the generated project). The shared predicate this needs already exists — `ScaledGenerators/Binary/Scaled.Binary.Model.Operations/Traits/Types/Timestamp/UnixMicroseconds.cs` — but ZeroCopy never calls it and has no microsecond decode/encode component or type-file builder (`Files/Type/Integer/Components/` holds `UnixSecondDecode.cs`, `LittleEndianUnixMillisecondDecode.cs`, `BigEndianUnixMillisecondDecode.cs`, `LittleEndianUnixNanosecondDecode.cs`, `BigEndianUnixNanosecondDecode.cs`, and matching `*TimestampDeclaration.cs` files, but nothing for microseconds). Not a model defect: the model's traits are unremarkable and match the millisecond/nanosecond shapes the generator already supports. Fix site: `ZeroCopy/Scaled.CSharp.ZeroCopy/Files/Type/Elements.cs` (`IntegerFor`) needs an `Is.Unix.Microsecond.Timestamp` branch and a matching `Integer.LittleEndianUnixMicrosecondTimestamp` / `BigEndianUnixMicrosecondTimestamp` type-file builder with decode/encode components, mirroring the millisecond pair. Covers Tmx.TsxAlpha.QuantumFeedLevel2.Xmt.v2.1, Tmx.TsxAlpha.QuantumFeedLevel2.Xmt.v2.2. These two rows previously carried `unresolved-element-argument` (generation-stage failure); that defect was fixed upstream and generation now reaches build, exposing this masked second defect.
 
+## zc-repeated-element-zero-bytes
+
+generator defect (in scope, forward-reader slice): the zero-byte-repeated-element refusal in `Table.AssertElement` applies to both Count and Payload repetitions, but the plan's rule table states the "size can only be zero" refusal only for a Payload-repeated element
+
+first error: Model 'Euronext.Optiq.MarketDataGateway.Sbe.v3.0': Count rule on 'Not Used Group': the repeated element holds no bytes, so the model states no repetition content (element 'packet.optiqmessage.payload.fulltradeinformationmessage.notusedgroups.notusedgroup'). Fix site: `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Content/Table.cs:117-118` — `if (Layers.Repetition(element) is { } repetition && Fixed.Empty(element)) throw …`. `Layers.Repetition` (`Layers.cs:30,41`) returns both Count and Payload rules; the check does not distinguish them. For a Count-bounded repetition the row count comes from the dependency field, not from consumed bytes, so a Count-repeated zero-byte element is fully specifiable (n repetitions, each occupying 0 bytes, `MoveNext` just decrements the count) — the ambiguity the plan's ruling 7 text describes ("a repetition of size zero while bytes of the bound remain") only exists for a Payload-bounded loop, which must consume bytes to know when to stop. This is the largest single TODO bucket (81 of 302 models): the element is 'Not Used Group', an SBE placeholder group genuinely declared with a Count dependency and zero-byte rows, in 79 versions of Euronext Optiq MarketDataGateway/OrderEntryGateway plus 2 Ice IseOptions SequencedPacketMessage models. Not a model defect — the corpus fact ("this group is declared and genuinely empty") is real and consistent across every affected version. Did not fix: generator source is out of my write authority. Covers 81 models; representative ones: Euronext.Optiq.MarketDataGateway.Sbe.v3.0 through v7.x (all versions with 'Not Used Group' or 'notusedgroup'), Euronext.Optiq.OrderEntryGateway.Sbe.v3.0 family, and 2 models with element 'packet.sbemessage.payload.sequencedpacketmessage.sequencedpacketmessagemessagesgroups.sequencedpacketmessagemessagesgroup'.
+
+## zc-padding-anchor-disagreement
+
+ruling 5 (expected, not a defect): padding rule inside a message and the alignment anchor's Size rule disagree, because the shared padding contract measures alignment from the nearest Size-ruled element and the model's real body length is measured from a different anchor
+
+first error: Refusal text "Padding rule on 'X': the alignment anchor and the model disagree", thrown from `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Content/Refusal.cs:24` via `Table.cs`'s `NeedsPaddingSize` path. Ruling 5 of the forward-reader plan (`docs/zerocopy-forward-reader/plan.md`) names this key as an accepted interim state until the shared `RuleType.Padding` / `Locate.Padding.Rule` contract and the model agree; it is never fixed inside this slice. Covers 52 models: 46 Eurex T7 (Eobi, Edci, Eti), 1 Bse, and 5 Siac (GapDetection Cta v1/v2/v3, GapDetection Obi v2, Opra Headers Udp v1) — all moved here from `zc-counted-group-no-row-cursor`.
+
+## zc-dispatch-default-no-stamp
+
+out-of-scope framing refusal (expected per the gate ladder): a Branch dispatch routes the walk through its default case, and no stamped key selects that route at write time
+
+first error: Model 'Nyse.AmexEquities.DepthFeed.Pillar.v1.6': dispatch 'packet.messages' routes the walk through its default case and no stamp selects that route. Thrown from `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/Writable.cs:146`. This is the plan's gate-ladder "3 loop" row named refusal for Pillar Depth v1.6 (`Branch [2]` is a default case with no `Data`), predating the forward-reader slice's writer routing logic — a framing-level refusal ("The writer's routing refusals … stay framing and stay unchanged"), out of scope for this slice. Covers 41 models, all moved here from `zc-counted-group-no-row-cursor`.
+
+## zc-walker-references-unemitted-message-class
+
+generator defect (in scope, forward-reader slice): the message walker's case switch calls `{M}.TrySize`/reads `{M}` for a message whose top-level class is never emitted
+
+first error: `Framing/MessageWalker.cs: error CS0103: The name 'HeartbeatMessage' does not exist in the current context` (also seen as `LogoutRequest`, `ReplayComplete`). Repro: `Cboe.C1Options.MarketDataFeed.Csm.v1.4.2` — the walker (`case MessageCode.HeartbeatMessage: … HeartbeatMessage.TrySize(...)`) references a bare `HeartbeatMessage` type, but the only generated file for that message is `ConsoleDumpManager/Messages/HeartbeatMessage.cs`, a manager print-helper `partial class ConsoleDumpManager`, not a top-level message type. No `class HeartbeatMessage` exists anywhere in the generated project. Every affected message is a small, likely fixed/zero-content message (heartbeat, logout request, replay complete) — consistent with review finding A9-2 in `output/stage3-review.md:16` ("`Content/Table.cs:45-58`: Layout-only route groups skip `AssertMembers`. Add the `Surface.HasLayout` instances."), which flagged a related gap in message-class emission for Layout-only/empty containers. Fix site is in the stage 1 message-class emission path reached from `Content/Table.cs` and the walker's case-emitter that names `{M}.TrySize` — I did not trace the exact builder that skips emitting a top-level class for a fixed message with no Layout member; that trace is owed. Did not fix: generator source is out of my write authority. Covers 17 models, all moved here from `zc-counted-group-no-row-cursor` (build stage, none were regressions from a passing state): 8 Cboe *.BinaryOrderEntry.Boe3.* Initiator/Acceptor walkers (LogoutRequest, ReplayComplete), 8 MessageWalker.cs models with HeartbeatMessage (Cboe C1Options/CNOptions/CfeFutures Csm family, Euronext Optiq OrderEntryGateway v1.3, Nyse AmexEquities/NyseEquities OpenBook Ultra v2.1.b/.k), and 1 further Cboe BinaryOrderEntry walker.
+
+## zc-size-dependency-outside-message
+
+generator defect or out-of-scope framing gap (undetermined): a message's own Size rule reads a dependency field that lies outside the message and is not the Size dependency of the unit that frames it
+
+first error: Model 'Cboe.BzxEquities.BinaryOrderEntry.Boe.v2.3': Size rule on 'Login Request Message': dependency 'Message Length' ('packet.messageheader.messagelength') is not reachable: it lies outside message 'Login Request Message' and is not the Size dependency of the unit that frames it (element 'packet.message.loginrequestmessage'). Thrown from `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Content/Reachability.cs:106`. The plan's "Decisions" section states one carried-value rule for a header-length dependency (dependency item 4): it is recovered only when the dependency is "the Size dependency of the unit that frames the message" and the message ends at the unit's end. Here 'Login Request Message' sits under a Branch dispatch ('packet.message') inside the unit, and its own Size rule reads the unit's shared 'Message Length' header field the same way the framing unit itself does — this is the same shape as the header-length recovery the plan's decision already covers for the message-unit case, just one level further inside a nested dispatch case target, which decision item 4 does not extend to. I have not traced whether the walker/writer callers (`Route/MessageRead.cs`, stage 2W's writer) could recover this value the same way they recover the unit-level case, or whether the rule table's dependency-reachability items would need a fifth item. Blocked on: a ruling on whether dependency item 4 extends to a case target's own Size rule reading the unit's shared length field. Covers 11 models, all moved here from `zc-counted-group-no-row-cursor`: Cboe.BzxEquities/ByxEquities/CboeEquities/EdgaEquities/EdgxEquities/EdgxOptions/BzxOptions/C1Options/C2Options/CfeFutures.BinaryOrderEntry.Boe.v2.x (various), all on the 'Login Request Message' element.
+
+## zc-payload-rest-no-size-rule
+
+generator defect (in scope, forward-reader slice) or model fact gap (undetermined): a Payload rule's remainder element states no Size rule that reads its own length, so the reader/writer cannot state where that remainder ends
+
+first error: Payload rule on 'X': the rest of 'Y' ('address') has no stated end: 'Y' states no Size rule that reads its length (element 'address'). Thrown from `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Content/InstanceEnd.cs` (`AssertParent`, text at line 112) via `Composition.cs`'s `Layers.TryRemaining` check. I did not trace each of the 10 affected models to confirm whether the missing Size rule is a genuine upstream model gap (the field truly has no length source) or whether the rule exists elsewhere in the tree and the generator's reachability walk misses it. Did not fix: generator/model investigation is owed. Covers 10 models, all moved here from `zc-counted-group-no-row-cursor`.
+
+## zc-size-rest-no-size-rule
+
+generator defect (in scope, forward-reader slice) or model fact gap (undetermined): same missing-end condition as `zc-payload-rest-no-size-rule`, but raised from a `Size[Remaining parent]` rule instead of a `Payload[Remaining parent]` rule
+
+first error: Size rule on 'X': the rest of 'Y' ('address') has no stated end: 'Y' states no Size rule that reads its length (element 'address'). Same throw site as `zc-payload-rest-no-size-rule` (`Content/InstanceEnd.cs`). Covers 2 models, both moved here from `zc-counted-group-no-row-cursor`.
+
+## zc-reassemble-no-layer
+
+rule table row, out of scope for this slice (expected): a Reassemble rule inside a message has no forward-reader layer, per the plan's "Other rules" table ("Conversion, Reassemble, DispatchKey, Packet, Union, Continuation, Struct, Data, Unspecified, Omit inside a message | generation fails, naming the rule kind")
+
+first error: Model 'Aquis.AquisEquities.TcpHeader.Amd.v1.0': Reassemble rule on 'Message': the forward reader has no layer for a Reassemble rule (element 'packet.message'). Thrown from `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Content/Composition.cs:33`. Designed refusal, matches the plan's rule table exactly; not a defect. Covers 9 models, all moved here from a "no walker" state that predates this slice (per `output/stage3-scotty.md`'s verify comparison): Aquis TcpHeader Amd/Atp variants and others sharing the Reassemble-rule shape.
+
+## zc-conversion-no-layer
+
+rule table row, out of scope for this slice (expected): a Conversion rule inside a message has no forward-reader layer, same table row as `zc-reassemble-no-layer`
+
+first error: Model 'Euronext.Optiq.GapDetection.Mdg.v2': Conversion rule on 'X': the forward reader has no layer for a Conversion rule (element 'X'). Thrown from `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Content/Composition.cs:33`. Designed refusal per the plan's rule table; not a defect. Covers 2 models, moved from a pre-slice "no walker" state.
+
+## zc-dispatchkey-no-layer
+
+rule table row, out of scope for this slice (expected): a DispatchKey rule inside a message has no forward-reader layer, same table row as `zc-reassemble-no-layer`
+
+first error: DispatchKey rule on 'X': the forward reader has no layer for a DispatchKey rule (element 'X'). Thrown from `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Content/Composition.cs:33`. Designed refusal per the plan's rule table; not a defect. Covers 1 model.
+
+## zc-no-walker-no-dispatch-path
+
+framing gap, out of scope for this slice: a tree has no path from its root to a message dispatch
+
+first error: Model 'X': no ZeroCopy walker for tree 'Y': no path from its root to a message dispatch. Thrown from `ZeroCopy/Scaled.CSharp.ZeroCopy/Source/Generation.cs:44`. Predates this slice's rule-table work (walker/tree selection, not the reader/writer rule table); not investigated further here. Covers 9 models.
+
+## zc-walker-field-outside-loop-step
+
+generator defect or model fact gap (undetermined): a walker loop step has no derivable byte bound because a field the walker needs does not lie inside the step's own container
+
+first error: Model 'X': no ZeroCopy walker for tree 'Y': loop step 'Z' has no derivable byte bound: field 'F' does not lie inside 'Z'. Thrown from `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/Support.cs` (walker size-derivation path). Not individually traced per model. Covers 8 models.
+
+## zc-count-dependency-non-integer
+
+model fact gap (expected per plan, "Done criteria" 3): a Count rule's dependency field is not an integer of 1, 2, 4, or 8 bytes
+
+first error: Model 'Box.BoxOptions.SolaMulticast.Hsvf.v1.5': Count rule on 'X': dependency 'Y' ('address') is not an integer of 1, 2, 4, or 8 bytes (element 'address'). Named explicitly in the plan's "Done criteria" 3 as an expected destination ("7 HSVF models on a non-integer Count dependency"). Not a generator defect — the rule table (Repetition layer) requires an integer dependency of one of those widths; the HSVF Count field's declared width falls outside it. Covers exactly 7 models: Box.BoxOptions.SolaMulticast.Hsvf.v1.5/v1.8/v1.9, Box.BoxOptions.SolaUnicast.Hsvf.v4.5.1, Tmx.Mx.SolaMulticast.Hsvf.v1.11/v1.13/v1.14, matching the plan's projection exactly.
+
+## zc-walker-nested-dispatch-no-size
+
+ruling 9 (24X and BlueOcean Memo) or generator defect for other models: the walker cannot size a count-only case target that holds a nested dispatch
+
+first error: Model '24X.24XEquities.Memo.Sbe.v1.13': no ZeroCopy walker for tree 'packet': loop step 'packet' has no derivable byte bound: the walker does not size count-only case target 'packet.data.unsequencedmessage', which holds nested dispatch 'packet.data.unsequencedmessage.sbemessage.payload'. Thrown from `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/Support.cs:272`. `24X.24XEquities.Memo.Sbe.v1.13` and `BlueOceanAts.BlueEquities.Memo.Sbe.v1.13` are ruling 9's known-wrong models (their Size rules state the SBE root block length as a whole message; fixed upstream in `docs/forward-reader-model-facts/plan.md`, not fixed here) — recorded per ruling 9, never gating. The other 3 models sharing this same throw text were not individually traced to confirm they are the same ruling-9 shape or a separate generator gap. Covers 5 models: 24X.24XEquities.Memo.Sbe.v1.13, BlueOceanAts.BlueEquities.Memo.Sbe.v1.13 (ruling 9), plus 3 more sharing the identical throw text, not yet individually confirmed.
+
+## zc-length-rules-disagree
+
+model defect: a message's own Size rule and its payload's Size rule both read the same header length field but state different frame sizes, because the model's header framing and payload framing arithmetic disagree by a fixed byte count
+
+first error: Model 'Omi.Sbe.Example.Sbe.v1': length rules on 'packet.message' and 'packet.message.payload' both read 'packet.message.messageheader.messagelength' but exclude 0 and -4 bytes from the frame size. The message's Size rule states Size = MessageLength (excludes 0 bytes); the payload's Size rule states Size = MessageLength − 12 (excludes 12 bytes), but the message header is 8 bytes and the model's Framing Header is empty (0 bytes) — so payload should be message minus 8, not minus 12, a 4-byte disagreement in the model's own rules (see `output/stage3-scotty.md`, "3 loop Omi SBE Example"). Same shape, different byte counts, in 5 more models that all frame an inner unit by one header-length field read from two elements at different depths: Ice.IceFutures.Bgw.Sbe.v7.0 (excludes 0 and 4 bytes — the header itself is stated twice, once included once excluded), and Memx.MemxEquities.CommonHeader.Tcp.v1.2 / Memx.MemxOptions.RiskControl.Sbe.v1.3 / v1.6 / v1.7 (all exclude 0 and 3 bytes). Not traced upstream to specific OmiSpecifications lines for the 5 non-Omi models; proposing an edit needs each model's Message Header and Framing Header byte counts confirmed against its Size-rule Data/arithmetic. Covers 6 models, all moved here from `zc-counted-group-no-row-cursor`.
+
+## zc-count-and-payload-one-rule
+
+designed refusal (rule table, ruling 7): an element carries both a Count rule and a Payload rule; the plan states "Count and Payload rules on one element" fails generation
+
+first error: Model 'X': Count and Payload rules on 'Y': an element repeats by one rule (element 'address'). Thrown from `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Content/Composition.cs:39` (`Refusal.Pair`). Matches the plan's Repetition layer table row exactly ("Count and Payload on one element | generation fails"); not a defect. Covers 5 models.
+
+## zc-size-dependency-not-leading-run
+
+generator defect or model fact gap (undetermined): a Size rule's dependency does not lie in the element's own leading run
+
+first error: Model 'X': Size rule on 'Y': dependency 'Z' ('address') is not reachable: it does not lie in the leading run of 'Y' (element 'address'). Thrown from `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Content/Reachability.cs:106`, dependency item 2 of the plan's "Dependency values" table. Not individually traced per model. Covers 4 models.
+
+## zc-dispatch-composite-key
+
+designed refusal (framing, out of scope): a dispatch keys on a composite key, and the walker's stamp cannot select one key field
+
+first error: Model 'Nasdaq.Uqdf.Output.Utp.v3.0.Hft': dispatch 'X' keys on a composite key; the walker's key stamp select one key field. Thrown from `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/Writable.cs:118` / `DispatchDependencies.cs:31`. A writer/framing routing refusal, out of scope for this slice's rule table (see "Out of scope"). Covers 4 models: Nasdaq.Uqdf.Output.Utp.v3.0.Hft, Nasdaq.Utdf.Output.Utp.v3.0.Hft, Siac.Cqs.Output.Cta.v2.10.Hft, Siac.Opra.Output.Obi.v6.3.Hft.
+
+## zc-size-terminator-unsupported
+
+designed refusal (rule table): a Size rule carries a Terminator parameter, which the Size layer table excludes ("Size with … a Terminator parameter … generation fails")
+
+first error: Model 'X': Size rule on 'Y': parameter Terminator 'Z' is outside the Size forms (element 'address'). Matches the plan's Size layer table row exactly; not a defect. Covers 3 models.
+
+## zc-unsupported-integer-width
+
+model defect or generator defect (undetermined): a value's element requires a C# integer width the generator does not support
+
+first error: Element 'X' (packet.packetheader.session.protocolversion) value 'Y' requires an unsupported N-byte C# integer type. Thrown from `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Value/Type.cs:68`. Named in review finding 2W-R3-L5 (`output/stage3-review.md:97`) as "outside the slice", with no model id given there; this reconcile is the first attribution to a specific model. Not traced further. Covers 1 model.
+
+## zc-length-disambiguated-dispatch-unsupported
+
+known ZeroCopy dispatch-shape limitation (same family as `nested-dispatch-key-not-direct-child`, `single-branch-case`): ZeroCopy does not support a dispatch whose cases share one wire code, disambiguated by length
+
+first error: Model 'Cboe.CboeEquities.BinaryOrderEntry.Boe.v2.3.7': dispatch element 'packet.message' is classified as LengthDisambiguatedDispatch. ZeroCopy does not support shared wire codes. Thrown from `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/Validate.cs:22`. Predates this slice's rule table (a framing/dispatch-classification gap, not a reader/writer layer gap); not a defect introduced by this slice. Covers 1 model.
+
+## zc-dispatch-offpath-case-no-unit
+
+designed refusal (writer/framing routing, out of scope): a Branch dispatch has an off-path case inside a loop step that the writer emits no unit for
+
+first error: Model 'X': dispatch 'Y' has an off-path case 'Z' inside the loop step; the writer emits no unit for it. Thrown from `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/Writable.cs:150`. A writer routing refusal, out of scope for this slice per "Out of scope" (framing-level position checks and the writer's routing refusals). Covers 1 model.
+
+## zc-stored-length-name-collision
+
+generator defect or model fact gap (undetermined): two stored-length fields in one model both name the same generated constant
+
+first error: Model 'X': stored-length fields 'Y' and 'Z' both name constant 'W'. Thrown from `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/LengthBindings.cs:240`. Not individually traced. Covers 1 model.
+
+## zc-optional-no-presence-condition
+
+ruling 6 (expected, upstream): a bare Optional rule with no presence condition fails generation
+
+first error: Model 'Nasdaq.NsmEquities.Orders.Ouch.v5.0': Optional rule on 'Appendage Length' states no presence condition (element 'clientpacket.clientsoupbintcppacket.clientpayload.unsequenceddatapacket.unsequencedmessage.accountquerymessage.appendagelength'). This is the one corpus case the forward-reader plan's ruling 6 names by hand: "The one case in the corpus is OUCH 5.0 Account Query. Sean and Bill decide the model fact that replaces it; until then OUCH 5.0 fails on this key when the slice lands." OUCH 5.0 passed at baseline `f9cbd79` and is the one expected regression the plan's "Done criteria" 2 names by exception. Its OUCH scenario packet fixtures (`Reassembly`, 7 walked) and the simulator's `SelectedModelsScenarioTests` (FirstTrade configuration) are lost with it. Blocked on: the model fact ruling from Sean and Bill (`docs/forward-reader-model-facts/plan.md`'s OUCH item).
+
+## zc-branch-discriminator-unsupported
+
+out-of-scope framing refusal (predates this slice): a Branch dispatch has an unsupported direct discriminator type or width
+
+first error: Model 'OtcMarkets.GapDetection.Link.v1': Branch rule on 'Message Block': Dispatch 'packet.messageblock' has an unsupported direct discriminator type or width (element 'packet.messageblock'). Thrown from `ZeroCopy/Scaled.CSharp.ZeroCopy/CSharp/Framing/Branch.cs:71`. Named in `output/stage3-scotty.md`'s verify comparison as "OtcMarkets GapDetection Link v1: 'no walker' → 'Dispatch … has an unsupported direct discriminator type or width'. An out-of-scope framing refusal." Not a defect introduced by this slice.
+
 # Classes
 
 ## §15
